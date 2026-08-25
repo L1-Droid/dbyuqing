@@ -8,7 +8,7 @@ from pyecharts import options as opts
 from pyecharts.charts import Pie, WordCloud, Bar
 import tempfile
 
-# ========== 开发阶段：本地读取内置数据库，网页用户看不到这一步 ==========
+# ==========加载本地内置数据库==========
 @st.cache_resource
 def load_stopwords():
     sw = set()
@@ -19,24 +19,16 @@ def load_stopwords():
 
 @st.cache_resource
 def load_movie_database():
-    print("====数据库从磁盘读取，只应该打印这一次====")
-    import os
-    all_df_list = []
-    #遍历仓库根目录，找出全部csv文件
-    for fname in os.listdir("./"):
-        if fname.endswith(".csv"):
-            print(f"读取文件：{fname}")
-            df_one = pd.read_csv(fname, encoding="utf-8")
-            #保证两列存在
-            df_one = df_one[["Movie_Name","Comment"]].copy()
-            all_df_list.append(df_one)
-
-    #全部csv合并为一张总表
-    df_comment = pd.concat(all_df_list, ignore_index=True)
+    df_comment = pd.read_csv("movie_db_small.csv",encoding="utf-8")
     movie_name_list = sorted(df_comment["Movie_Name"].unique().tolist())
-    print(f"合并完成，总数据行数 {len(df_comment)}，电影数量 {len(movie_name_list)}")
     return df_comment, movie_name_list
 
+stopwords = load_stopwords()
+df_database, all_movie_names = load_movie_database()
+
+phrase_black = {"一个","一直","一种","这个","那个","有些","一点","一部","这部"}
+strong_pos_word = {"太","超级","绝","非常","极其","炸裂","封神","满分","太棒"}
+strong_neg_word = {"烂","巨烂","离谱","尴尬","垃圾","烂爆","无语","很差"}
 
 def get_ngram_phrase(word_list, n_min=2,n_max=4):
     phrases = []
@@ -63,6 +55,7 @@ def render_chart_in_st(chart):
 def analyze_movie(df_movie_comments):
     res_rows = []
     all_phrases_total = []
+    raw_comments_sample = df_movie_comments["Comment"].sample(min(5,len(df_movie_comments))).tolist()
     for _,row in df_movie_comments.iterrows():
         comment = str(row["Comment"])
         clean_txt, wordlist, phrase_list = clean_proc(comment)
@@ -82,12 +75,12 @@ def analyze_movie(df_movie_comments):
             label = "中性"
         res_rows.append({"score":score,"label":label})
     df_result = pd.DataFrame(res_rows)
-    return df_result, all_phrases_total
+    return df_result, all_phrases_total, raw_comments_sample
 
-# ========== 网页界面（普通用户看到的全部内容） ==========
+# =========页面UI=========
 st.set_page_config(page_title="豆瓣电影影评舆情分析平台",layout="wide")
 st.title("🎬 豆瓣电影影评舆情分析平台")
-st.markdown("输入电影关键词，系统检索内置数据库，选择电影进行舆情分析")
+st.markdown("输入电影关键词，检索并查看该电影的影评舆情分析结果")
 
 search_key = st.text_input("🔍输入电影关键词搜索：",value="")
 selected_movie = None
@@ -103,15 +96,43 @@ if search_key.strip() != "":
 if selected_movie is not None:
     if st.button("🔎对选中电影执行舆情分析"):
         sub_df = df_database[df_database["Movie_Name"] == selected_movie]
-        st.info(f"【{selected_movie}】有效影评样本：{len(sub_df)} 条，正在分析...")
-        df_analysis, all_phr = analyze_movie(sub_df)
+        total_raw = len(sub_df)
+
+        st.divider()
+        st.subheader("🎞️ 选中电影信息")
+        st.markdown(f"**电影名称：{selected_movie}**")
+        st.info(f"有效影评样本：{total_raw} 条，正在进行舆情分析...")
+
+        df_analysis, all_phr, sample_comments = analyze_movie(sub_df)
+
+        stat = df_analysis["label"].value_counts()
+        total = len(df_analysis)
+        strong_pos = stat.get("强烈正向",0)
+        pos = stat.get("正向",0)
+        neutral = stat.get("中性",0)
+        neg = stat.get("负向",0)
+        strong_neg = stat.get("强烈负向",0)
+
+        st.divider()
+        st.subheader("📝舆情简要总结")
+        sum_text = f"""
+总共完成分析影评{total}条。
+- 强烈正向：{strong_pos} 条
+- 正向：{pos} 条
+- 中性：{neutral} 条
+- 负向：{neg} 条
+- 强烈负向：{strong_neg} 条
+
+整体正向评价占比 {(strong_pos+pos)/total*100:.1f}%，负面评价占比 {(neg+strong_neg)/total*100:.1f}%。
+结合词云与Top高频短语，可以直观看到观众集中讨论、褒贬的热点方向。下方附带部分真实影评原文可供参考。
+"""
+        st.markdown(sum_text)
 
         st.divider()
         st.subheader("📊情感五分类占比饼图")
-        lab_cnt = df_analysis["label"].value_counts()
         pie_chart = (
             Pie(init_opts=opts.InitOpts(width="1000px", height="500px"))
-            .add("", [list(z) for z in zip(lab_cnt.index.tolist(), lab_cnt.values.tolist())])
+            .add("", [list(z) for z in zip(stat.index.tolist(), stat.values.tolist())])
             .set_global_opts(title_opts=opts.TitleOpts(title="影评情感分布（强烈正向/正向/中性/负向/强烈负向）"))
             .set_series_opts(label_opts=opts.LabelOpts(formatter="{b}: {c}"))
         )
@@ -120,9 +141,10 @@ if selected_movie is not None:
         st.subheader("☁️影评高频观点短语词云")
         phrase_counter = Counter(all_phr)
         top80 = phrase_counter.most_common(80)
+        # 关键修复：设置词云字号范围 min_font_size max_font_size，频次越高字越大
         wc_chart = (
             WordCloud(init_opts=opts.InitOpts(width="1000px", height="500px"))
-            .add("", top80, word_size_range=[20,100])
+            .add("", top80, word_size_range=[12, 120])
             .set_global_opts(title_opts=opts.TitleOpts(title="影评高频提及短语"))
         )
         render_chart_in_st(wc_chart)
@@ -140,10 +162,18 @@ if selected_movie is not None:
         )
         render_chart_in_st(bar_phrase)
 
+        st.divider()
+        st.subheader("💬原始影评抽样展示（5条）")
+        for idx,c in enumerate(sample_comments):
+            st.markdown(f"{idx+1}. {c}")
+
 st.divider()
 st.markdown("""
 **系统说明**
-1. 系统内置豆瓣影评本地数据库，用户仅输入电影关键词，模糊检索得到候选电影；
-2. 情感算法：SnowNLP情感分数 + 强语气关键词词典，输出五分类情感；
-3. 词条提取：采用2‑4字N‑Gram提取影评中反复出现的观点短语。
+1. 系统内置豆瓣影评本地数据集，输入电影关键词实现模糊检索，选择目标电影；
+2. 情感算法：SnowNLP情感分数 + 强语气关键词词典，输出五分类情感结果；
+3. 词条提取：采用2‑4字N‑Gram算法提取影评反复出现的观点短语；词云根据短语出现频次自动调节字号，频次越高字体越大；
+4. 输出舆情文字总结、情感分布饼图、高频短语词云、Top15短语统计图表，并展示抽样原始影评，完成电影网络舆情分析。
+
+>拓展说明：本项目使用的公开数据集未包含影片类型、剧情简介等元数据，当前版本暂未实现该模块；后续可通过爬虫抓取豆瓣接口补充电影元信息，进一步完善平台。
 """)
