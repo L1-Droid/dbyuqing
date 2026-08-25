@@ -19,17 +19,24 @@ def load_stopwords():
 
 @st.cache_resource
 def load_movie_database():
-    # movie_db.csv 放在本地项目文件夹，网页使用者不需要处理这个文件
-    df = pd.read_csv("movie_db_small.csv",encoding="utf-8")
-    movie_name_list = sorted(df["Movie_Name"].unique().tolist())
-    return df, movie_name_list
+    print("====数据库从磁盘读取，只应该打印这一次====")
+    import os
+    all_df_list = []
+    #遍历仓库根目录，找出全部csv文件
+    for fname in os.listdir("./"):
+        if fname.endswith(".csv"):
+            print(f"读取文件：{fname}")
+            df_one = pd.read_csv(fname, encoding="utf-8")
+            #保证两列存在
+            df_one = df_one[["Movie_Name","Comment"]].copy()
+            all_df_list.append(df_one)
 
-stopwords = load_stopwords()
-df_database, all_movie_names = load_movie_database()
+    #全部csv合并为一张总表
+    df_comment = pd.concat(all_df_list, ignore_index=True)
+    movie_name_list = sorted(df_comment["Movie_Name"].unique().tolist())
+    print(f"合并完成，总数据行数 {len(df_comment)}，电影数量 {len(movie_name_list)}")
+    return df_comment, movie_name_list
 
-phrase_black = {"一个","一直","一种","这个","那个","有些","一点","一部","这部"}
-strong_pos_word = {"太","超级","绝","非常","极其","炸裂","封神","满分","太棒"}
-strong_neg_word = {"烂","巨烂","离谱","尴尬","垃圾","烂爆","无语","很差"}
 
 def get_ngram_phrase(word_list, n_min=2,n_max=4):
     phrases = []
