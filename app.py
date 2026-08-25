@@ -8,6 +8,44 @@ from pyecharts import options as opts
 from pyecharts.charts import Pie, WordCloud, Bar
 import tempfile
 
+# ===================== 页面全局配置 + 美化CSS =====================
+st.set_page_config(
+    page_title="豆瓣电影影评舆情分析平台",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+custom_style = """
+<style>
+    .block-container {
+        max-width: 1300px;
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+    }
+    .main {
+        background-color: #f5f7fa;
+    }
+    .card-box {
+        background:#ffffff;
+        border-radius:14px;
+        padding:22px 26px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+        margin:14px 0;
+    }
+    h1 {
+        text-align:center;
+        color:#111827;
+    }
+    .desc-tip {
+        text-align:center;
+        color:#525252;
+        font-size:16px;
+        margin-bottom:32px;
+    }
+</style>
+"""
+st.markdown(custom_style, unsafe_allow_html=True)
+
 # ==========加载本地内置数据库==========
 @st.cache_resource
 def load_stopwords():
@@ -78,13 +116,13 @@ def analyze_movie(df_movie_comments):
     return df_result, all_phrases_total, raw_comments_sample
 
 # =========页面UI=========
-st.set_page_config(page_title="豆瓣电影影评舆情分析平台",layout="wide")
-st.title("🎬 豆瓣电影影评舆情分析平台")
-st.markdown("输入电影关键词，检索并查看该电影的影评舆情分析结果")
+st.markdown("<h1>🎬 豆瓣电影影评舆情分析平台</h1>", unsafe_allow_html=True)
+st.markdown("<div class='desc-tip'>输入电影关键词，检索并查看该电影的影评舆情分析结果</div>",unsafe_allow_html=True)
 
-search_key = st.text_input("🔍输入电影关键词搜索：",value="")
+# 搜索卡片
+st.markdown("<div class='card-box'>",unsafe_allow_html=True)
+search_key = st.text_input("🔍 输入电影关键词搜索：",value="",placeholder="例如：流浪地球")
 selected_movie = None
-
 if search_key.strip() != "":
     match_result = [name for name in all_movie_names if search_key.strip() in name]
     if len(match_result) == 0:
@@ -92,19 +130,22 @@ if search_key.strip() != "":
     else:
         st.success(f"匹配到 {len(match_result)} 部电影，请选择：")
         selected_movie = st.radio("候选电影列表",options=match_result)
+st.markdown("</div>",unsafe_allow_html=True)
+
 
 if selected_movie is not None:
-    if st.button("🔎对选中电影执行舆情分析"):
+    st.markdown("<br>",unsafe_allow_html=True)
+    if st.button("🔎 对选中电影执行舆情分析",type="primary"):
         sub_df = df_database[df_database["Movie_Name"] == selected_movie]
         total_raw = len(sub_df)
 
-        st.divider()
+        st.markdown("<div class='card-box'>",unsafe_allow_html=True)
         st.subheader("🎞️ 选中电影信息")
         st.markdown(f"**电影名称：{selected_movie}**")
         st.info(f"有效影评样本：{total_raw} 条，正在进行舆情分析...")
+        st.markdown("</div>",unsafe_allow_html=True)
 
         df_analysis, all_phr, sample_comments = analyze_movie(sub_df)
-
         stat = df_analysis["label"].value_counts()
         total = len(df_analysis)
         strong_pos = stat.get("强烈正向",0)
@@ -113,46 +154,57 @@ if selected_movie is not None:
         neg = stat.get("负向",0)
         strong_neg = stat.get("强烈负向",0)
 
-        st.divider()
-        st.subheader("📝舆情简要总结")
+        # 总结卡片
+        st.markdown("<div class='card-box'>",unsafe_allow_html=True)
+        st.subheader("📝 舆情简要总结")
         sum_text = f"""
-总共完成分析影评{total}条。
-- 强烈正向：{strong_pos} 条
-- 正向：{pos} 条
-- 中性：{neutral} 条
-- 负向：{neg} 条
-- 强烈负向：{strong_neg} 条
+总共完成分析影评 **{total}** 条。
+- ✨强烈正向：{strong_pos} 条
+- 👍正向：{pos} 条
+- 😐中性：{neutral} 条
+- 👎负向：{neg} 条
+- 💢强烈负向：{strong_neg} 条
 
-整体正向评价占比 {(strong_pos+pos)/total*100:.1f}%，负面评价占比 {(neg+strong_neg)/total*100:.1f}%。
+整体正向评价占比 **{(strong_pos+pos)/total*100:.1f}%**，负面评价占比 **{(neg+strong_neg)/total*100:.1f}%**。
+
 结合词云与Top高频短语，可以直观看到观众集中讨论、褒贬的热点方向。下方附带部分真实影评原文可供参考。
 """
         st.markdown(sum_text)
+        st.markdown("</div>",unsafe_allow_html=True)
 
-        st.divider()
-        st.subheader("📊情感五分类占比饼图")
-        pie_chart = (
-            Pie(init_opts=opts.InitOpts(width="1000px", height="500px"))
-            .add("", [list(z) for z in zip(stat.index.tolist(), stat.values.tolist())])
-            .set_global_opts(title_opts=opts.TitleOpts(title="影评情感分布（强烈正向/正向/中性/负向/强烈负向）"))
-            .set_series_opts(label_opts=opts.LabelOpts(formatter="{b}: {c}"))
-        )
-        render_chart_in_st(pie_chart)
+        # 两栏布局：饼图｜词云
+        col_left, col_right = st.columns(2)
+        with col_left:
+            st.markdown("<div class='card-box'>",unsafe_allow_html=True)
+            st.subheader("📊情感五分类占比饼图")
+            pie_chart = (
+                Pie(init_opts=opts.InitOpts(width="100%", height="500px"))
+                .add("", [list(z) for z in zip(stat.index.tolist(), stat.values.tolist())])
+                .set_global_opts(title_opts=opts.TitleOpts(title="影评情感分布（强烈正向/正向/中性/负向/强烈负向）"))
+                .set_series_opts(label_opts=opts.LabelOpts(formatter="{b}: {c}"))
+            )
+            render_chart_in_st(pie_chart)
+            st.markdown("</div>",unsafe_allow_html=True)
 
-        st.subheader("☁️影评高频观点短语词云")
-        phrase_counter = Counter(all_phr)
-        top80 = phrase_counter.most_common(80)
-        # 关键修复：设置词云字号范围 min_font_size max_font_size，频次越高字越大
-        wc_chart = (
-            WordCloud(init_opts=opts.InitOpts(width="1000px", height="500px"))
-            .add("", top80, word_size_range=[12, 120])
-            .set_global_opts(title_opts=opts.TitleOpts(title="影评高频提及短语"))
-        )
-        render_chart_in_st(wc_chart)
+        with col_right:
+            st.markdown("<div class='card-box'>",unsafe_allow_html=True)
+            st.subheader("☁️影评高频观点短语词云")
+            phrase_counter = Counter(all_phr)
+            top80 = phrase_counter.most_common(80)
+            wc_chart = (
+                WordCloud(init_opts=opts.InitOpts(width="100%", height="500px"))
+                .add("", top80, word_size_range=[12, 120])
+                .set_global_opts(title_opts=opts.TitleOpts(title="影评高频提及短语"))
+            )
+            render_chart_in_st(wc_chart)
+            st.markdown("</div>",unsafe_allow_html=True)
 
+        # 柱状图卡片
+        st.markdown("<div class='card-box'>",unsafe_allow_html=True)
         st.subheader("📈Top15高频提及短语")
         top15 = phrase_counter.most_common(15)
         bar_phrase = (
-            Bar(init_opts=opts.InitOpts(width="1000px", height="500px"))
+            Bar(init_opts=opts.InitOpts(width="100%", height="500px"))
             .add_xaxis([i[0] for i in top15])
             .add_yaxis("出现频次",[i[1] for i in top15])
             .set_global_opts(
@@ -161,19 +213,22 @@ if selected_movie is not None:
             )
         )
         render_chart_in_st(bar_phrase)
+        st.markdown("</div>",unsafe_allow_html=True)
 
-        st.divider()
+        # 抽样影评卡片
+        st.markdown("<div class='card-box'>",unsafe_allow_html=True)
         st.subheader("💬原始影评抽样展示（5条）")
         for idx,c in enumerate(sample_comments):
             st.markdown(f"{idx+1}. {c}")
+        st.markdown("</div>",unsafe_allow_html=True)
 
-st.divider()
+
+st.markdown("<div class='card-box'>",unsafe_allow_html=True)
 st.markdown("""
 **系统说明**
 1. 系统内置豆瓣影评本地数据集，输入电影关键词实现模糊检索，选择目标电影；
 2. 情感算法：SnowNLP情感分数 + 强语气关键词词典，输出五分类情感结果；
-3. 词条提取：采用2‑4字N‑Gram算法提取影评反复出现的观点短语；词云根据短语出现频次自动调节字号，频次越高字体越大；
+3. 词条提取：提取影评反复出现的观点短语；
 4. 输出舆情文字总结、情感分布饼图、高频短语词云、Top15短语统计图表，并展示抽样原始影评，完成电影网络舆情分析。
-
->拓展说明：本项目使用的公开数据集未包含影片类型、剧情简介等元数据，当前版本暂未实现该模块；后续可通过爬虫抓取豆瓣接口补充电影元信息，进一步完善平台。
 """)
+st.markdown("</div>",unsafe_allow_html=True)
