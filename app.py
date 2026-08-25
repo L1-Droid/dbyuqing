@@ -20,7 +20,7 @@ def load_stopwords():
 @st.cache_resource
 def load_movie_database():
     # movie_db.csv 放在本地项目文件夹，网页使用者不需要处理这个文件
-    df = pd.read_csv("movie_db.csv",encoding="utf-8")
+    df = pd.read_csv("movie_db_small.csv",encoding="utf-8")
     movie_name_list = sorted(df["Movie_Name"].unique().tolist())
     return df, movie_name_list
 
